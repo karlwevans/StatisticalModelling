@@ -1,0 +1,199 @@
+---
+title: "Statistical Modelling Assignment 3"
+author: "Karl Evans"
+date: "18/05/2022"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(tidyverse, tidymodels, gglm)
+```
+
+# Q1
+## a)
+i. $\log(\lambda_{11}) = \gamma_0$  
+ii. $\log(\lambda_{12}) = \gamma_0+\gamma_2$  
+iii. $\log(\lambda_{21}) = \gamma_0+\gamma_1$  
+iv. $\log(\lambda_{22}) = \gamma_0+\gamma_1+\gamma_3$  
+
+## b)
+$Y_{i2}|Y_{i1}+Y_{i2}=n_i$ is the number of cases per total population in each treatment group.  
+A Case is then success from a fixed number of bernoulli trials with fixed probability of success and so has a binomial distribution.  
+$\pi_i$ is the probability of cases for each treatment group, taken as the proportion: $\pi_i = \frac{\lambda_{i2}}{\lambda_{i1}+\lambda_{i2}}$
+
+## c)
+$\gamma_0$ is the intercept, common to all groups.  
+$\gamma_1$ changes the control rate between treatment groups.  
+$\gamma_2$ changes the case rate equally for both treatment groups.  
+$\gamma_3$ changes the case rate only for treatment B, so creates the difference in cases BETWEEN treatment groups.  
+Therefore, $\beta_1$ of the logistic model is only affected by $\gamma_3$ in the poisson model.
+
+## d)
+So to test the effect of treatment A vs B:  
+ - the probability, $\pi_i$ of a case changes if $\beta_1$ is significant.  
+ - the case rates compared to baseline rates within the treatment group $\lambda_{12}$ vs. $\lambda_{12}+\lambda_{11}, \lambda_{22}$ vs. $\lambda_{22}+\lambda_{21}$ if the interaction term $\gamma_3$ is significant.
+
+\newpage
+
+# Q2
+## a) Read Data
+```{r, message=FALSE}
+lung<-read_csv("lung_cancer.csv")
+```
+
+## b) EDA
+```{r}
+lung <- 
+  lung %>% 
+  mutate(
+    across(where(is.character), factor)
+  )
+lung<-lung %>% 
+  mutate(p=cases/pop)
+skimr::skim(lung)
+```
+
+```{r, fig.cap="Histogram of Cases", fig.height = 2, fig.width = 3, fig.align = "center", message=FALSE}
+lung %>% 
+  ggplot(aes(cases)) + 
+  geom_histogram(col = "black", fill = "orange")
+```
+
+```{r, fig.cap="Visualising Cases VS Age and City", fig.height = 11, fig.width = 6, fig.align = "center"}
+p1<-lung%>%
+  ggplot(aes(age,cases, col=city, shape=city))+
+  geom_point(size=4)+
+  labs(title="Scatterplot of Cases by Age Group", x = "Age Goup", y = "Number of Cases")+
+  scale_shape()
+p2<-lung%>%
+  ggplot(aes(city,cases, col=age, fill=age))+
+  geom_point(position=position_jitter(h=0, w=0.2),
+             shape = 21, alpha = 0.5, size = 3)+
+  labs(title="Scatterplot of Cases by Age Group", x = "Age Goup", y = "Number of Cases")
+p3<-lung%>%
+  ggplot(aes(age, cases))+
+  geom_boxplot()+
+  labs(title="Boxplot of Cases by Age Group", x = "Age Goup", y = "Number of Cases")
+p4<-lung%>%
+  ggplot(aes(city, cases))+
+  geom_boxplot()+
+  labs(title="Boxplot of Cases by City", x = "City", y="Number of Cases")
+gridExtra::grid.arrange(p1,p2,p3,p4, ncol=1)
+```
+
+```{r, fig.cap="Visualising Proportion of Cases Vs Age and City", fig.height = 11, fig.width = 6, fig.align = "center"}
+p1<-lung %>%
+  ggplot(aes(age,p, col=city))+
+  geom_point()+
+  labs(title="Scatterplot of Proportion of Cases Vs Age", y="Proportion of Cases",x = "Age Group")
+p2<-lung %>%
+  ggplot(aes(city,p, col=age))+
+  geom_point()+
+  labs(title="Scatterplot of Proportion of Cases Vs City", y="Proportion of Cases",x = "City")
+p3<-lung%>%
+  ggplot(aes(age, p))+
+  geom_boxplot()+
+  labs(title="Boxplot of Proportion of Cases by Age", y="Proportion of Cases",x = "Age Group")
+p4<-lung%>%
+  ggplot(aes(city, p))+
+  geom_boxplot()+
+  labs(title="Boxplot of Proportion of Cases by City", y="Proportion of Cases",x = "City")
+gridExtra::grid.arrange(p1,p2,p3,p4, ncol=1)
+```
+
+\newpage
+## c) Model 1
+```{r}
+M1<-glm(cases~1, family=poisson, offset=log(pop) ,data=lung)
+summary(M1)
+```
+
+## d) Model 2
+```{r}
+M2<-glm(cases~city+age, family=poisson, offset=log(pop) ,data=lung)
+summary(M2)
+```
+
+## e) Model 3
+```{r}
+M3<-glm(cases~age+city+log(pop), family=poisson, offset=log(pop) ,data=lung)
+summary(M3)
+```
+
+\newpage
+## f) ANOVA
+```{r}
+anova(M1,M2, test='LRT')
+```
+With a p-value << 0.05 on the Likelihood Ratio Test, city and age are significant predictors of the number of cases.  
+
+## g) AIC
+
+```{r}
+AIC(M1,M2,M3)
+```
+
+
+## h) Coefficients of M2
+```{r}
+coef(M2)
+```
+
+## i) Pearson Residuals
+```{r}
+lung<-lung %>% add_column(M2_res = residuals(M2, type = "pearson"), M2_fit = fitted(M2))
+```
+## j) Residuals Plots
+```{r, fig.cap="Residual Plots" , message=FALSE, fig.height = 6, fig.width = 4, fig.align = "center"}
+p1<-lung %>%
+  ggplot(aes(M2_fit,M2_res))+
+  geom_point()+
+  geom_smooth()+
+ labs(x="Fitted Values", y="Pearson Residuals", title="Pearson Residuals Vs Fitted Values")
+p2<-lung %>%
+  ggplot(aes(age,M2_res))+
+  geom_point()+
+ labs(x="Age Group", y="Pearson Residuals", title="Pearson Residuals Vs Age Group")
+p3<-lung %>%
+  ggplot(aes(city,M2_res))+
+  geom_point()+
+    geom_smooth()+
+ labs(x="City", y="Pearson Residuals", title="Pearson Residuals Vs City")
+gridExtra::grid.arrange(p1,p2,p3, ncol=1)
+```
+
+```{r, fig.cap="Residual Plots"}
+lung %>%
+  select(where(is.factor), M2_res) %>% 
+  pivot_longer(-M2_res) %>% 
+  ggplot(aes(value, M2_res)) + 
+  geom_boxplot() + 
+  facet_wrap(~name, scale = "free")+
+  labs(y="Pearson Residual", x="Predictor")
+```
+
+\newpage
+
+## k) Prediction
+```{r}
+new_data <- 
+  tibble(
+    city = as_factor("Fredericia"),
+    age = as_factor("40-54"),
+    pop=4000,
+  )
+new_data
+```
+
+The probability of 5 or less cases is binomial (n=population, $p=\frac{\lambda}{population}$)
+```{r}
+lambda=exp(predict(M2, newdata = new_data))
+rate=lambda/4000
+pbinom(5, 4000, rate)
+```
+
+The probability of 5 or less cases, given the rate from data modeled by M2, is ~0.0044. Since this is less than p=0.05, it is unlikely that with 5 cases, the rate for Fredericia in 1980 is the same as the modeled data. Therefore it is a significant decrease in the rate of lung cancer cases.
+
